@@ -1,0 +1,18 @@
+public class WorkValidator {
+
+    public static void validate(double heuresTravaillees, double salaireBase)
+            throws InvalidWorkDataException {
+
+        if (heuresTravaillees > 240) {
+            throw new InvalidWorkDataException(
+                    "Heures travaillées invalides (> 240)"
+            );
+        }
+
+        if (salaireBase < 3000) {
+            throw new InvalidWorkDataException(
+                    "Salaire de base inférieur au SMIG (3000)"
+            );
+        }
+    }
+}
