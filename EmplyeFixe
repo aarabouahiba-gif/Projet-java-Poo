@@ -1,0 +1,82 @@
+import java.time.LocalDate;
+
+public class EmployeFixe {
+    private double id;
+    private String nom;
+    private String email;
+    private String departement;
+    private LocalDate dateEmbauche;
+    private double primePerformance;
+    private double salairebase;
+
+    public EmployeFixe(double id, String nom, String email, String departement, LocalDate dateEmbauche, double primePerformance, double salairebase) {
+        this.id = id;
+        this.nom = nom;
+        this.email = email;
+        this.departement = departement;
+        this.dateEmbauche = dateEmbauche;
+        this.primePerformance = primePerformance;
+        this.salairebase = salairebase;
+    }
+
+    public double getSalairebase() {
+        return salairebase;
+    }
+
+    public void setSalairebase(double salaireBase) {
+        this.salairebase = salairebase;
+    }
+
+    public double getPrimePerformance() {
+        return primePerformance;
+    }
+
+    public void setPrimePerformance(double primePerformance) {
+        this.primePerformance = primePerformance;
+    }
+
+
+    public double calculSalaireBrut() {
+        return salairebase + primePerformance;
+    }
+
+    public String getNom() {
+        return nom;
+    }
+
+    public void setNom(String nom) {
+        this.nom = nom;
+    }
+
+    public double getId() {
+        return id;
+    }
+
+    public void setId(double id) {
+        this.id = id;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getDepartement() {
+        return departement;
+    }
+
+    public void setDepartement(String departement) {
+        this.departement = departement;
+    }
+
+    public LocalDate getDateEmbauche() {
+        return dateEmbauche;
+    }
+
+    public void setDateEmbauche(LocalDate dateEmbauche) {
+        this.dateEmbauche = dateEmbauche;
+    }
+}
