@@ -1,0 +1,246 @@
+package employer;
+
+import java.sql.*;
+import java.time.LocalDate;
+import java.util.*;
+
+/**
+ * Data Access Object pour la table `employes`.
+ *
+ * Responsabilités :
+ *   - Persister / récupérer des objets Employe (Fixe ou Horaire)
+ *   - Reporting agrégé (masse salariale par département)
+ *   - Mise à jour massive des salaires de base
+ */
+public class EmployeDAO {
+
+    // ── DDL de la table (à exécuter une seule fois) ───────────────────────
+    /*
+    CREATE TABLE employes (
+        id              INT PRIMARY KEY AUTO_INCREMENT,
+        nom             VARCHAR(100)  NOT NULL,
+        prenom          VARCHAR(100)  NOT NULL,
+        departement     VARCHAR(100)  NOT NULL,
+        salaire_base    DOUBLE        NOT NULL,
+        date_embauche   DATE          NOT NULL,
+        type            ENUM('FIXE','HORAIRE') NOT NULL,
+        -- colonnes propres aux Fixe :
+        taux_performance DOUBLE,
+        -- colonnes propres aux Horaire :
+        taux_horaire     DOUBLE,
+        nb_heures        INT
+    );
+    */
+
+    private final Connection conn;
+
+    public EmployeDAO() throws SQLException {
+        this.conn = DatabaseConnection.getInstance().getConnection();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 1. save() — Insertion avec mapping LocalDate → java.sql.Date
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Insère un employé (Fixe ou Horaire) dans la base de données.
+     *
+     * Mapping temporel :
+     *   LocalDate  (objet métier)
+     *   → java.sql.Date.valueOf(localDate)  (type JDBC)
+     *   → colonne DATE de la table SQL
+     *
+     * La conversion est bidirectionnelle et sans perte : LocalDate ne stocke
+     * pas d'information horaire, ce qui correspond exactement au type DATE SQL.
+     */
+    public void save(Employé e) throws SQLException {
+        String sql = """
+            INSERT INTO employes
+              (nom, prenom, departement, salaire_base, date_embauche,
+               type, taux_performance, taux_horaire, nb_heures)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql,
+                Statement.RETURN_GENERATED_KEYS)) {
+
+            ps.setString(1, e.getNom());
+            ps.setString(2, e.getPrenom());
+            ps.setString(3, e.getDepartement());
+            ps.setDouble(4, e.getSalaireBase());
+
+            // ── Mapping temporel : LocalDate → java.sql.Date ─────────────
+            // java.sql.Date.valueOf() convertit directement sans fuseau horaire.
+            ps.setDate(5, java.sql.Date.valueOf(e.getDateEmbauche()));
+
+            // ── Instanciation dynamique selon le type réel ────────────────
+            if (e instanceof EmployeFixe fixe) {
+                ps.setString(6, "FIXE");
+                ps.setDouble(7, fixe.getTauxPerformance());
+                ps.setNull(8, Types.DOUBLE);
+                ps.setNull(9, Types.INTEGER);
+            } else if (e instanceof EmployeHoraire horaire) {
+                ps.setString(6, "HORAIRE");
+                ps.setNull(7, Types.DOUBLE);
+                ps.setDouble(8, horaire.getTauxHoraire());
+                ps.setInt(9, horaire.getNbHeuresTravaillees());
+            }
+
+            ps.executeUpdate();
+
+            // Récupérer l'ID auto-généré et l'affecter à l'objet
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                if (keys.next()) e.setId(keys.getInt(1));
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 2. findAll() — Récupération avec instanciation dynamique
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Récupère tous les employés et instancie la bonne sous-classe selon la
+     * valeur de la colonne `type` ('FIXE' ou 'HORAIRE').
+     *
+     * Instanciation dynamique :
+     *   On lit la colonne `type` (String) et on switche dessus pour construire
+     *   soit un EmployeFixe, soit un EmployeHoraire.
+     *   Cette approche évite la réflexion (Class.forName) et reste lisible.
+     *
+     * Mapping temporel inverse :
+     *   ResultSet.getDate() → java.sql.Date
+     *   .toLocalDate()      → LocalDate  (API java.time)
+     */
+    public List<Employe> findAll() throws SQLException {
+        List<Employe> liste = new ArrayList<>();
+        String sql = "SELECT * FROM employes";
+
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+
+            while (rs.next()) {
+                int       id          = rs.getInt("id");
+                String    nom         = rs.getString("nom");
+                String    prenom      = rs.getString("prenom");
+                String    dept        = rs.getString("departement");
+                double    base        = rs.getDouble("salaire_base");
+
+                // ── Mapping inverse : java.sql.Date → LocalDate ──────────
+                LocalDate dateEmbauche = rs.getDate("date_embauche").toLocalDate();
+
+                String    type        = rs.getString("type");
+
+                // ── Instanciation dynamique selon `type` ─────────────────
+                Employe emp = switch (type) {
+                    case "FIXE" -> new EmployeFixe(
+                            id, nom, prenom, dept, base, dateEmbauche,
+                            rs.getDouble("taux_performance"));
+
+                    case "HORAIRE" -> new EmployeHoraire(
+                            id, nom, prenom, dept, base, dateEmbauche,
+                            rs.getDouble("taux_horaire"),
+                            rs.getInt("nb_heures"));
+
+                    default -> throw new SQLException("Type inconnu : " + type);
+                };
+
+                liste.add(emp);
+            }
+        }
+        return liste;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 3. getMasseSalarialeParDept() — Agrégation GROUP BY en SQL
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Retourne la somme des salaires nets groupés par département.
+     *
+     * La sommation est déléguée à la base de données via GROUP BY :
+     *   → Traitement ensembliste côté SGBD (plus rapide que Java sur de gros volumes)
+     *   → Une seule requête au lieu de N appels
+     *
+     * Note : SUM(salaire_base) agrège le salaire de base stocké.
+     * Pour une masse salariale exacte (incluant primes et cotisations),
+     * le calcul de calculerNetAPayer() devrait être stocké ou recalculé en Java.
+     */
+    public Map<String, Double> getMasseSalarialeParDept() throws SQLException {
+        Map<String, Double> resultat = new LinkedHashMap<>();
+
+        String sql = """
+            SELECT departement,
+                   SUM(salaire_base) AS masse_salariale
+            FROM   employes
+            GROUP  BY departement
+            ORDER  BY masse_salariale DESC
+            """;
+
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+
+            while (rs.next()) {
+                resultat.put(
+                        rs.getString("departement"),
+                        rs.getDouble("masse_salariale")
+                );
+            }
+        }
+        return resultat;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 4. augmenterSalaireBase() — Mise à jour massive (employés FIXE)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Augmente le salaire de base de tous les employés fixes d'un pourcentage donné.
+     *
+     * Mise à jour massive : une seule requête UPDATE affecte toutes les lignes
+     * concernées, ce qui est beaucoup plus performant qu'une boucle Java + N UPDATEs.
+     *
+     * @param pourcentage ex. 0.05 pour +5%
+     * @return nombre de lignes affectées
+     */
+    public int augmenterSalaireBase(double pourcentage) throws SQLException {
+        String sql = """
+            UPDATE employes
+            SET    salaire_base = salaire_base * (1 + ?)
+            WHERE  type = 'FIXE'
+            """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setDouble(1, pourcentage);
+            return ps.executeUpdate(); // retourne le nombre de lignes modifiées
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 5. Rapport synthétique console
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Affiche un rapport formaté de la masse salariale par département.
+     */
+    public void afficherRapportMasseSalariale() throws SQLException {
+        Map<String, Double> rapport = getMasseSalarialeParDept();
+
+        System.out.println("╔══════════════════════════════════════════╗");
+        System.out.println("║   RAPPORT — MASSE SALARIALE PAR DEPT.    ║");
+        System.out.println("╠══════════════════╦═══════════════════════╣");
+        System.out.printf( "║ %-16s ║ %-21s ║%n", "Département", "Masse salariale");
+        System.out.println("╠══════════════════╬═══════════════════════╣");
+
+        double total = 0;
+        for (Map.Entry<String, Double> entry : rapport.entrySet()) {
+            System.out.printf("║ %-16s ║ %18.2f DH ║%n",
+                    entry.getKey(), entry.getValue());
+            total += entry.getValue();
+        }
+
+        System.out.println("╠══════════════════╬═══════════════════════╣");
+        System.out.printf( "║ %-16s ║ %18.2f DH ║%n", "TOTAL", total);
+        System.out.println("╚══════════════════╩═══════════════════════╝");
+    }
+}
