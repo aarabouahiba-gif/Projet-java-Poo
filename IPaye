@@ -1,0 +1,30 @@
+public interface IPaye {
+    double calculerSalaireBrut();
+    double calculerPrimeAnciennete();
+    default double calculerCharges(double taux) {
+        return (calculerSalaireBrut() + calculerPrimeAnciennete()) * taux);
+    }
+    public double calculerPrimeAnciennete(Employe E){
+
+        int a= E.getAnciennete();
+        double brut = E.calculerSalaireBrut();
+        float s=0;
+        if(a < 2){
+            return s;}
+
+        else if(a <=5){
+            s= brut * 0.05;
+            return s;}
+
+        else{
+            s=brut * 0.10;
+            return s;}
+    }
+    double calculerNetAPayer(Employe E,int t) {
+        double brut = E.calculerSalaireBrut();
+       float prime= E.calculerPrimeAnciennete();
+        Charge=E.calculerCharges(int t)
+         return (brut + Prime)- charges;}
+
+}
+
