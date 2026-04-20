@@ -1,0 +1,74 @@
+mport java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+abstract class Employe {
+    private double id;
+    private String nom;
+    private String email;
+    private String deppartement;
+    private LocalDate dateEmbauche ;
+    public int getAnciennete(){
+        return (int) ChronoUnit.YEARS.between(dateEmbauche, LocalDate.now());
+        return
+    }
+    public Employe( int i ,String n,String e , string d,LocalDate l){
+        id=i;
+        nom=n;
+        email=e;
+        dateEmbauche=l
+    }
+    public abstract double();
+
+    public String getEmail() {
+        return email;
+    }
+
+    public String getNom() {
+        return nom;
+    }
+
+    public void setNom(String nom) {
+        this.nom = nom;
+    }
+
+    public double getId() {
+        return id;
+    }
+
+    public LocalDate getDateEmbauche() {
+        return dateEmbauche;
+    }
+
+    public String getDeppartement() {
+        return deppartement;
+    }
+
+    public void setDateEmbauche(LocalDate dateEmbauche) {
+        this.dateEmbauche = dateEmbauche;
+    }
+
+    public void setDeppartement(String deppartement) {
+        this.deppartement = deppartement;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public void setId(double id) {
+        this.id = id;
+    }
+    public double calculerPrimeAnciennete(){
+
+        int a= getAnciennete();
+        double brut = calculerSalaireBrut();
+
+        if(a < 2){
+            return 0;}
+
+        else if(a <=5){
+            return brut * 0.05;}
+
+        else{
+            return brut * 0.10;}
+    }
+}
